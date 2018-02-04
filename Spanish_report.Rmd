@@ -1,6 +1,6 @@
 ---
 title: "Spanish_AB_testing"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
