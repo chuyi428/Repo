@@ -1,0 +1,97 @@
+---
+title: "Spanish_AB_testing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r library,message=FALSE}
+library(dplyr)
+library(reshape)
+library(reshape2 )
+require(data.table)
+library(ggplot2)
+
+test_table<-read.csv("/Users/jiangchuyi/Desktop/DS data challenge/02_Translation_Test/test_table.csv")
+user_table<-read.csv("/Users/jiangchuyi/Desktop/DS data challenge/02_Translation_Test/user_table.csv")
+summary(test_table)
+summary(user_table)
+
+#prepare master
+master<-merge(test_table,user_table,by='user_id',all.x=TRUE)
+
+```
+
+##Confirm the test is negative
+
+Since we care about if local translation will make a difference, we only need to look at non-Spain country T/C.
+
+```{r first_t_test,message=FALSE}
+#initial t test
+#get non-Spain based data; will run a test to compare T/C within the countries not based in Spain
+non_Spain_base_data<-master[master$country!='Spain',]
+summary(non_Spain_base_data)
+t.test(non_Spain_base_data$conversion~non_Spain_base_data$test)
+```
+
+Overall, in non-Spain countries, people who were shown localized translation have lower conversion rate than the current version. The test is negative.
+
+But it's not necessarily true. We need to make sure the test and hold out groups are comparable. 
+
+##Explain why it might be happening
+
+Let's first look at the distribution by different groups. We don't need to check users by browser, source, etc. since it should not be a factor for the result of language change.
+
+```{r dist_country,message-FALSE}
+dist_by_x<-function(var)
+{
+  test<-"test"
+  assign(paste0(var,"_test"),
+         non_Spain_base_data %>% 
+          group_by_(test,var)%>%
+          summarise(num_users=n()) %>%
+          group_by_(var)%>%
+          mutate(percent_subtotal=paste0(round(num_users/sum(num_users)*100,0),'%'))%>%
+          arrange_(var,test))
+  
+  temp<-get(paste0(var,"_test"))
+  temp$test1<-ifelse(temp$test==0,"control","test")
+  
+  percent_subtotal<-"percent_subtotal"
+  plot<-ggplot(temp, aes_string(x=var, y="percent_subtotal")) + geom_bar(aes(fill = test1),stat="identity",width = 0.4)
+  
+  
+  return(plot)
+}  
+
+non_Spain_base_data$age_bkt<-ifelse(non_Spain_base_data$age>=17 & non_Spain_base_data$age<=22,"[17,22]",
+                                    ifelse(non_Spain_base_data$age>22 & non_Spain_base_data$age<=26,"[23,26]",
+                                           ifelse(non_Spain_base_data$age>26 & non_Spain_base_data$age<=31,"[27,31]",">=32")))
+dist_by_x("country")
+dist_by_x("sex")
+dist_by_x("age_bkt")
+```
+The plots shows that the distribution of users in terms of sex, age is similar for test and control. But country disbribution is off for some countries (Uruguay and Argentina have unbalanced T/C). So the overall result can be biased. 
+
+Instead of doing a overall t test, we can carry out the test by country to see if the result is really negative.
+
+##T test by country
+```{r test by country,message=FALSE}
+non_Spain_base_data<-filter(non_Spain_base_data,!is.na(country))
+#for (i in unique(non_Spain_base_data$country))
+#{
+#  temp<-filter(non_Spain_base_data,country==i)
+#  print(i)
+#  print(t.test(temp$conversion~temp$test))
+#}
+
+data_test_country = non_Spain_base_data %>%group_by(country) %>%summarize( p_value = t.test(conversion~test)$p.value,          conversion_test = t.test(conversion~test)$estimate[1],
+conversion_control = t.test(conversion~test)$estimate[2])%>%arrange (p_value)
+
+data_test_country
+```
+None of the test is significant, meaning that the lanuage change didn't make a difference either positively or negatively.
+
+It might be worth considering to run these tests for a long period of time since the conversion rate has not been affected significantly.
